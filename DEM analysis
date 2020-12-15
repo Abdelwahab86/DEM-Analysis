@@ -1,8 +1,8 @@
-# Lab03: Compare aligned DEMs
+# Compare aligned DEMs
 
-In this lab, we will use the SRTM-C (30m, NASADEM), ASTER GDEM V3, ALOS 3D (12.5m) DEMs that have been aligned to the TanDEM-X DEM (12m, WorldDEM)
+we will use the SRTM-C (30m, NASADEM), ASTER GDEM V3, ALOS 3D (12.5m) DEMs that have been aligned to the TanDEM-X DEM (12m, WorldDEM)
 
-The files haben been aligned using the method described in *Nuth and A. Kääb (2011): Co-registration and bias corrections of satellite elevation data sets for quantifying glacier thickness change* and implemented in David Shean's [demcoreg](https://github.com/dshean/demcoreg).
+The files have been aligned using the method described in *Nuth and A. Kääb (2011): Co-registration and bias corrections of satellite elevation data sets for quantifying glacier thickness change* and implemented in David Shean's [demcoreg](https://github.com/dshean/demcoreg).
 
 We first will use the ALOS12.5 m DEM. First, resample both DEM to the same resolution. Here, we resample the ALOS 12.5m DEM to the 12m resolution of the TanDEM-X DEM. The first step of the alignment indicated an offset of dx:-8.5 m and dy:1.6 m:
 
