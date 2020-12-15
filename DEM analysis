@@ -1,0 +1,233 @@
+# Lab03: Compare aligned DEMs
+
+In this lab, we will use the SRTM-C (30m, NASADEM), ASTER GDEM V3, ALOS 3D (12.5m) DEMs that have been aligned to the TanDEM-X DEM (12m, WorldDEM)
+
+The files haben been aligned using the method described in *Nuth and A. Kääb (2011): Co-registration and bias corrections of satellite elevation data sets for quantifying glacier thickness change* and implemented in David Shean's [demcoreg](https://github.com/dshean/demcoreg).
+
+We first will use the ALOS12.5 m DEM. First, resample both DEM to the same resolution. Here, we resample the ALOS 12.5m DEM to the 12m resolution of the TanDEM-X DEM. The first step of the alignment indicated an offset of dx:-8.5 m and dy:1.6 m:
+
+
+#Setting up initial functions and import modules
+import numpy as np
+from osgeo import gdal
+from matplotlib import pyplot as plt
+import warnings
+warnings.filterwarnings('ignore')
+
+plt.rcParams['figure.figsize'] = [12, 8]
+
+def tif2nparray(geotif_file,clip=[]):
+    metadata = {}
+    dataset = gdal.Open(geotif_file)
+    metadata['array_rows'] = dataset.RasterYSize
+    metadata['array_cols'] = dataset.RasterXSize
+    metadata['bands'] = dataset.RasterCount
+    metadata['driver'] = dataset.GetDriver().LongName
+    metadata['projection'] = dataset.GetProjection()
+    metadata['geotransform'] = dataset.GetGeoTransform()
+
+    mapinfo = dataset.GetGeoTransform()
+    metadata['pixelWidth'] = mapinfo[1]
+    metadata['pixelHeight'] = mapinfo[5]
+
+    metadata['ext_dict'] = {}
+    metadata['ext_dict']['xMin'] = mapinfo[0]
+    metadata['ext_dict']['xMax'] = mapinfo[0] + dataset.RasterXSize/mapinfo[1]
+    metadata['ext_dict']['yMin'] = mapinfo[3] + dataset.RasterYSize/mapinfo[5]
+    metadata['ext_dict']['yMax'] = mapinfo[3]
+
+    metadata['extent'] = (metadata['ext_dict']['xMin'],metadata['ext_dict']['xMax'],
+                          metadata['ext_dict']['yMin'],metadata['ext_dict']['yMax'])
+
+    if metadata['bands'] == 1:
+        raster = dataset.GetRasterBand(1)
+        metadata['noDataValue'] = raster.GetNoDataValue()
+        metadata['scaleFactor'] = raster.GetScale()
+
+        # band statistics
+        metadata['bandstats'] = {} #make a nested dictionary to store band stats in same 
+        stats = raster.GetStatistics(True,True)
+        metadata['bandstats']['min'] = round(stats[0],2)
+        metadata['bandstats']['max'] = round(stats[1],2)
+        metadata['bandstats']['mean'] = round(stats[2],2)
+        metadata['bandstats']['stdev'] = round(stats[3],2)
+
+        if clip == []:
+            array = dataset.GetRasterBand(1).ReadAsArray(0,0,metadata['array_cols'],metadata['array_rows']).astype(np.float)
+        else:
+            array = dataset.GetRasterBand(1).ReadAsArray(clip[0], clip[1], clip[2], clip[3]).astype(np.float)
+
+        array[array==metadata['noDataValue']]=np.nan
+        array = array/metadata['scaleFactor']
+        array = array[::-1] #inverse array because Python is column major
+        return np.flipud(array), metadata
+    elif metadata['bands'] > 1:
+        print('More than one band ... need to modify function for case of multiple bands')
+
+def hillshade(array,azimuth,angle_altitude):
+    azimuth = 360.0 - azimuth 
+
+    x, y = np.gradient(array)
+    slope = np.pi/2. - np.arctan(np.sqrt(x*x + y*y))
+    aspect = np.arctan2(-x, y)
+    azimuthrad = azimuth*np.pi/180.
+    altituderad = angle_altitude*np.pi/180.
+
+    shaded = np.sin(altituderad)*np.sin(slope) + np.cos(altituderad)*np.cos(slope)*np.cos((azimuthrad - np.pi/2.) - aspect)
+
+    return 255*(shaded + 1)/2
+
+def np_slope_aspect(DEM, gridspacing):
+    dx, dy = np.gradient(DEM, gridspacing)
+    slope = np.arctan(np.sqrt(dx*dx+dy*dy))
+    aspect = np.arctan2(-dx, dy)
+    return slope, aspect
+
+
+Load a subset of the DEMs with a clip and calculate hillshade and slope. We start by loading the ALOS 12.5 m DEM that has been interpolated to 12m (TanDEM-X spatial resolution). We also load the TanDEM-X DEM:
+
+clip=[200,200,5000,3000]
+ALOS_12m_fn='ALOS12m_VCalchaquies_clip_UTM20S.tif'
+ALOS_12m_DEM, ALOS_12m_aligned_md = tif2nparray(ALOS_12m_fn,clip=clip)
+ALOS_12m_DEM_HS = hillshade(ALOS_12m_DEM,145, 45)
+ALOS_12m_slope, ALOS_12m_aspect = np_slope_aspect(ALOS_12m_DEM, 12.0)
+
+TDX_12m_fn='tanDEM_12m_VCalchaquies_clip_UTM20S.tif'
+TDX_12m_DEM, TDX_12m_aligned_md = tif2nparray(TDX_12m_fn,clip=clip)
+TDX_12m_DEM_HS = hillshade(TDX_12m_DEM,145, 45)
+TDX_12m_slope, TDX_12m_aspect = np_slope_aspect(TDX_12m_DEM, 12.0)
+
+# Plot DEM:
+fig, ax = plt.subplots(1, 2)
+ax[0].imshow(ALOS_12m_DEM,cmap='terrain'); 
+im2 = ax[0].imshow(ALOS_12m_DEM_HS,cmap='Greys',alpha=0.5)
+ax[0].grid('on'); 
+ax[0].set_title('ALOS 12m DEM')
+
+ax[1].imshow(TDX_12m_DEM,cmap='terrain'); 
+im2 = ax[1].imshow(TDX_12m_DEM_HS,cmap='Greys',alpha=0.5)
+ax[1].grid('on');
+ax[1].set_title('TanDEMX 12m DEM')
+
+
+# Plot dH:
+plt.imshow(TDX_12m_DEM-ALOS_12m_DEM,cmap='PiYG', vmin=-30, vmax=30); 
+cbar = plt.colorbar()
+cbar.set_label('dH(m)',rotation=270,labelpad=20)
+im2 = plt.imshow(TDX_12m_DEM_HS,cmap='Greys',alpha=0.5)
+plt.grid('on'); # plt.colorbar(); 
+plt.title('dH (m): TDX_12m_DEM-ALOS_12m_DEM')
+
+ALOS_12m_aligned_fn='ALOS12m_VCalchaquies_clip_UTM20S_tanDEM_12m_VCalchaquies_clip_UTM20S_nuth_x-11.06_y+1.41_z-2.00_align.tif'
+ALOS_12m_aligned_DEM, ALOS_12m_aligned_md = tif2nparray(ALOS_12m_aligned_fn, clip=clip)
+ALOS_12m_aligned_DEM_HS = hillshade(ALOS_12m_aligned_DEM,145, 45)
+ALOS_12m_aligned_slope, ALOS_12m_aligned_aspect = np_slope_aspect(ALOS_12m_aligned_DEM, 12.0)
+
+Let's load the aligned DEMs (a subset of the entire area) and show the differences in dh 
+
+# Plot dH:
+plt.imshow(TDX_12m_DEM-ALOS_12m_aligned_DEM,cmap='PiYG', vmin=-30, vmax=30); 
+cbar = plt.colorbar()
+cbar.set_label('dH(m)',rotation=270,labelpad=20)
+im2 = plt.imshow(TDX_12m_DEM_HS,cmap='Greys',alpha=0.5)
+plt.grid('on'); # plt.colorbar(); 
+plt.title('dH (m): TDX_12m_DEM-ALOS_12m_aligned_DEM')
+#Zoom in with:
+#ax.set(xlim=(1000, 1200), ylim=(1000,1200))
+
+# Plot dH for aligned and unaligned DEM:
+fig, ax = plt.subplots(1,2)
+ax[0].imshow(TDX_12m_DEM-ALOS_12m_DEM,cmap='PiYG', vmin=-30, vmax=30); 
+im2 = ax[0].imshow(TDX_12m_DEM_HS,cmap='Greys',alpha=0.5)
+ax[0].grid('on'); # plt.colorbar(); 
+ax[0].set_title('dH (m): TDX_12m_DEM-ALOS_12m_DEM (not aligned)')
+
+ax[1].imshow(TDX_12m_DEM-ALOS_12m_aligned_DEM,cmap='PiYG', vmin=-30, vmax=30); 
+im2 = ax[1].imshow(TDX_12m_DEM_HS,cmap='Greys',alpha=0.5)
+ax[1].grid('on'); # plt.colorbar(); 
+ax[1].set_title('dH (m): TDX_12m_DEM-ALOS_12m_DEM (aligned)')
+
+
+TDX_ALOS12_mean = np.mean(TDX_12m_DEM-ALOS_12m_DEM)
+TDX_ALOS12_std = np.std(TDX_12m_DEM-ALOS_12m_DEM)
+
+TDX_ALOS12_aligned_mean = np.mean(TDX_12m_DEM-ALOS_12m_aligned_DEM)
+TDX_ALOS12_aligned_std = np.std(TDX_12m_DEM-ALOS_12m_aligned_DEM)
+print('TDX - ALOS12m Mean dH: %3.2f +/- %3.2f\nTDX - ALOS12m aligned dH: %3.2f +/- %3.2f\n'%
+      (TDX_ALOS12_mean, TDX_ALOS12_std, TDX_ALOS12_aligned_mean, TDX_ALOS12_aligned_std))
+
+#Plot dh of aligned DEM
+dh_TDX_ALOS_12m = TDX_12m_DEM-ALOS_12m_aligned_DEM
+dh_bins = np.arange(-30,30,0.5)
+dh_TDX_ALOS_12m_hist, dh_TDX_ALOS_12m_bin_edges = np.histogram(dh_TDX_ALOS_12m, dh_bins)
+dh_TDX_ALOS_12m_bin_centers = dh_TDX_ALOS_12m_bin_edges[:-1] + np.diff(dh_TDX_ALOS_12m_bin_edges)/2
+
+fg, ax = plt.subplots(1, 1)
+fg.tight_layout()
+ax.plot(dh_TDX_ALOS_12m_bin_centers, dh_TDX_ALOS_12m_hist, 'b-')
+ax.set_xlabel('dH (m)')
+ax.set_ylabel('Occurrence or number of values in a bin or #')
+ax.set_title('TanDEM-X minus ALOS12.5m dH (m)')
+ax.grid('on')
+
+> **[Question 1:]** Plot the dh for the unaligned and aligned DEM as distribution (x axis: dh and y axis frequency/occurences).
+
+## Compare slopes of both DEMs (ALOS and TanDEM-X)
+
+dslope_TDX_ALOS_12m = TDX_12m_slope-ALOS_12m_aligned_slope
+#dz_TDX_ALOS_12m_offset = np.mean(dslope_TDX_ALOS_12m)
+#dh_TDX_ALOS_12m = dh_TDX_ALOS_12m - dz_TDX_ALOS_12m_offset
+dslope_bins = np.arange(-10,10,0.1)
+dslope_TDX_ALOS_12m_hist, dslope_TDX_ALOS_12m_bin_edges = np.histogram(dslope_TDX_ALOS_12m, dslope_bins)
+dslope_TDX_ALOS_12m_bin_centers = dslope_TDX_ALOS_12m_bin_edges[:-1] + np.diff(dslope_TDX_ALOS_12m_bin_edges)/2
+
+fg, ax = plt.subplots(1, 1)
+fg.tight_layout()
+ax.plot(dslope_TDX_ALOS_12m_bin_centers, dslope_TDX_ALOS_12m_hist, 'b-')
+ax.set_xlabel('d slope ($^\circ$)')
+ax.set_ylabel('Occurrence or number of values in a bin or #')
+ax.set_title('TanDEM-X minus ALOS12.5m d slope ($^\circ$)')
+ax.grid('on')
+
+> **[Question 2:]** Plot dh and slope distributions for ASTER GDEMV3.
+
+## Extracting Profiles
+
+clip=[1,1000,8000,1]
+ALOS_12m_aligned_fn='ALOS12m_VCalchaquies_clip_UTM20S_tanDEM_12m_VCalchaquies_clip_UTM20S_nuth_x-11.06_y+1.41_z-2.00_align.tif'
+ALOS_12m_aligned_profile, ALOS_12m_aligned_profile_md = tif2nparray(ALOS_12m_aligned_fn,clip=clip)
+
+TDX_12m_fn='tanDEM_12m_VCalchaquies_clip_UTM20S.tif'
+TDX_12m_profile, TDX_12m_profile_aligned_md = tif2nparray(TDX_12m_fn,clip=clip)
+
+x_distance = np.arange(0,ALOS_12m_aligned_profile.ravel().shape[0]*12, 12)
+
+fg, ax = plt.subplots(1, 1)
+fg.tight_layout()
+plt.plot(x_distance/1000, TDX_12m_profile.ravel(), 'k-')
+plt.plot(x_distance/1000, ALOS_12m_aligned_profile.ravel(), 'b-')
+ax.set_xlabel('Distance along Profile (km)')
+ax.set_ylabel('Elevation (m)')
+ax.grid('on')
+ax.set_title('TanDEM-X and ALOS Profile')
+
+#Zoom in
+fg, ax = plt.subplots(1, 1)
+fg.tight_layout()
+plt.plot(x_distance/1000, TDX_12m_profile.ravel(), 'k-', label='TanDEM-X')
+plt.plot(x_distance/1000, ALOS_12m_aligned_profile.ravel(), 'b-',label='ALOS aligned')
+ax.set_xlabel('Distance along Profile (km)')
+ax.set_ylabel('Elevation (m)')
+ax.grid('on')
+plt.legend()
+ax.set_title('TanDEM-X and ALOS Profile')
+#Zoom in with:
+#ax.set(xlim=(124, 126), ylim=(1250,1500))
+
+fg, ax = plt.subplots(1, 1)
+fg.tight_layout()
+plt.plot(x_distance/1000, TDX_12m_profile.ravel()-ALOS_12m_aligned_profile.ravel())
+ax.set_xlabel('Distance along Profile (km)')
+ax.set_ylabel('$\Delta$ Elevation (m)')
+ax.grid('on')
+ax.set_title('TanDEM-X and ALOS Profile')
