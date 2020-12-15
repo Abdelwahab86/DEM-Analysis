@@ -1,0 +1,238 @@
+%% Project Name : Point cloud Accuracy assessment and Plan fitting
+%% Course Name : GEW-RCM03 Data Analysis and Statistics (WiSe 2019/20)
+%% Supervised By : Prof. Martin Trauth
+%% Prepared By : Ahmed Abdelwahab
+%% Created via Matlab
+%% Examnation Date : 14th February 2020
+
+%% Introduction
+% The study target is House 01 at potsdam university, campus Golm -
+% Germany. We have two point clouds one was generated using Airborne Lidar
+% at 2016 while the generated SFM data were generated at June 2019. We used
+% a camera with resolution 24 MigaPixel and generated 530 photos of the
+% target building and process the images using Agisoft and Cloud Compare to
+% creat and merge the two models.
+% This requires polyfitn (https://www.mathworks.com/matlabcentral/fileexchange/34765-polyfitn)
+% Load point cloud using Point Cloud Tools or lasdata
+% you can load LAS data either with lasdata (https://www.mathworks.com/matlabcentral/fileexchange/48073-lasdata) or using the Point Cloud Tool (http://www.geo.tuwien.ac.at/downloads/pg/pctools/pctools.html)
+
+%% Cleaning up memory and add the path to our data 
+clc, close all, clear all
+addpath(genpath('D:\Deutschland\Potsdam University\Winter Semester 2019-2020\Data Analysis and statistics\Project\clips\pglira-Point_cloud_tools_for_Matlab-0cad900'))
+
+
+%% Method of Analysis
+% Point clouds in Matlab can be processed in various ways. We will use the Point cloud tools for Matlab: pctools. The code is available on github point_cloud_tools and you will need to install this software. A dropbox link is pglira-Point_cloud_tools_for_Matlab-v2.0-2-g0cad900.zip. The Point cloud tools come with pre-compiled binaries for 64-bit Windows systems to load LAS/LAZ files. On Mac OSX or Linux, you will need to compile the required packages.
+% File pointcloud_plane_fitting.m contains an example of how to fit a plane to a clipped, even point-cloud surface. You will need to provide a las/laz/xyz file, clipped with lasclip and a polygon. This requires polyfitn from Mathworks File Exchange. Point clouds can be either loaded with lasdata (only LAS, no LAZ files) or with the Point Cloud Tools.
+% Source code : https://github.com/UP-RS-ESP/PointCloudWorkshop-June2017/blob/master/Matlab_codes/README.md
+%% 1- SFM Data
+%% Display the data in 3D display
+% Reading the clip from Ground surface
+% There is a scaler need to be applied to data elevation as per acquisation
+% requirments
+clc, close all, clear all
+golm_H27_MuseX5_30m = pointCloud('D:\Deutschland\Potsdam University\Winter Semester 2019-2020\Data Analysis and statistics\Project\clips\2side of the building-update5 - final model - Cloud-clip01.las');
+
+x = golm_H27_MuseX5_30m.X(:, 1);
+y = golm_H27_MuseX5_30m.X(:, 2);
+z = golm_H27_MuseX5_30m.X(:, 3) + 50;
+%z1 = z * -1;
+% cl = lasFile(:, 4);
+
+%% Display the data in 2D display
+%2D scatter with colorbar for Roof Top
+figure
+scatter(x,y,[],z)
+colorbar();
+c = colorbar('w','eastoutside');
+c.Label.String = 'Elevation (m)';
+c.Label.FontSize = 12;
+c.Label.Color = 'k';
+ylabel('Y-coordinates','FontName','Helvetica','FontSize',11);
+xlabel('X-coordinates','FontName','Helvetica','FontSize',11);
+zlabel('Elevation Z in meters','FontName','Helvetica','FontSize',11)
+title('House 01 - Point cloud Ground clip')
+
+
+%% store the data from las format into a matlab data frame
+[ALS_clip1] = lasdata('D:\Deutschland\Potsdam University\Winter Semester 2019-2020\Data Analysis and statistics\Project\clips\2side of the building-update5 - final model - Cloud-clip01.las');
+%% display the data with scaling to Z dimension 
+%%display the data with scaling to Z dimension  - Ground
+ALS_clip1.get_intensity();
+ALS_clip1.get_classification();
+ALS_clip1z = ALS_clip1.z +50;
+plot3(ALS_clip1.x, ALS_clip1.y, ALS_clip1z, '+'); grid
+ylabel('Y-coordinates','FontName','Helvetica','FontSize',11);
+xlabel('X-coordinates','FontName','Helvetica','FontSize',11);
+zlabel('Elevation Z in meters','FontName','Helvetica','FontSize',11);
+title('House 01 - Ground clip')
+
+%% using toolbox of (Polyfit) to prepare a fitting plane 
+% Ground Top
+ALS_x = ALS_clip1.x;
+ALS_y = ALS_clip1.y;
+ALS_z = ALS_clip1z; 
+
+ALS_linfit3D = polyfitn([ALS_x, ALS_y], ALS_z,1);
+%equation: f(x,y) = a*x + b*y + c
+%Test for center of plane:
+%Coefficients: [X Y Z]
+
+
+%% apply the plane fitting to our point cloud data
+%Ground 
+[ALS_xx, ALS_yy]=meshgrid(min(ALS_x):0.1:max(ALS_x), min(ALS_y):0.1:max(ALS_y));
+ALS_zz = polyvaln(ALS_linfit3D, [ALS_xx(:) ALS_yy(:)]);
+ALS_zz = reshape(ALS_zz, size(ALS_xx));
+figure(1), clf
+L=plot3(ALS_x, ALS_y, ALS_z,'k.'); % Plot the original data points
+hold on
+grid on
+surf(ALS_xx, ALS_yy, ALS_zz) % Plotting the surface
+colorbar();
+c = colorbar('w','eastoutside');
+c.Label.String = 'Elevation (m)';
+c.Label.FontSize = 12;
+ylabel('Y-coordinates','FontName','Helvetica','FontSize',11);
+xlabel('X-coordinates','FontName','Helvetica','FontSize',11);
+zlabel('Elevation Z in meters','FontName','Helvetica','FontSize',11);
+title('House 01 - plane generation Ground clip')
+ALS_z_detrend = NaN(length(ALS_x), 1);
+for i = 1:length(ALS_x)
+    ALS_z_detrend(i) = ALS_z(i) - polyvaln(ALS_linfit3D, [ALS_x(i) ALS_y(i)]);
+end
+
+%% check the data accurcy to Mean trend and the standard deviation limits
+% Ground Top
+figure(2), clf
+
+plot(ALS_z_detrend), hold on, grid on, 
+a1 = plot([0 70000], [mean(ALS_z_detrend) mean(ALS_z_detrend)], 'k-', 'Linewidth', 2); M1 = "Mean line";
+a2 = plot([0 70000], [(mean(ALS_z_detrend)-std(ALS_z_detrend))*2 (mean(ALS_z_detrend)-std(ALS_z_detrend))*2], 'k-', 'Linewidth', 1); M2 = "STD min line";
+a3 = plot([0 70000], [(mean(ALS_z_detrend)+std(ALS_z_detrend))*2 (mean(ALS_z_detrend)+std(ALS_z_detrend))*2], 'k-', 'Linewidth', 1); M3 = "STD max line";
+legend([a1;a2;a3], M1, M2,M3);
+title('Distance from the fitted plane -  Ground clip', 'Fontsize', 16)
+xlabel('number of datapoints', 'FontSize', 12)
+ylabel('Distance from fitted plane (m)', 'Fontsize', 12)
+
+
+%% Accuracy percentage for plane fitting
+% Ground Top
+x = ALS_z_detrend;
+minVal = -0.005;
+maxVal = 0.005;
+
+ACC = size(x(x<=minVal));
+ACC2 = size(x(x>=maxVal));
+Accuracy = (((66163) - (ACC(:,1) + ACC2(:,1))) /66163) * 100 % Percent
+
+%% At the end we have a Ground clip point cloud data with plane fit accuracy = 98.7 Percent 
+
+%% 2- Airborne Lidar Data
+% Reading the clip from Roof Top surface
+% There is a scaler need to be applied to data elevation as per acquisation
+% requirments
+clc, close all, clear all
+
+golm_H27_MuseX5_30m = pointCloud('D:\Deutschland\Potsdam University\Winter Semester 2019-2020\Data Analysis and statistics\Project\clips\2side of the building-update5 - final model - Cloud-clip02.las');
+
+x = golm_H27_MuseX5_30m.X(:, 1);
+y = golm_H27_MuseX5_30m.X(:, 2);
+z = golm_H27_MuseX5_30m.X(:, 3) + 50;
+%z1 = z * -1;
+% cl = lasFile(:, 4);
+
+%% Display the data in 2D display
+%2D scatter with colorbar for Roof Top
+figure
+scatter(x,y,[],z)
+colorbar();
+c = colorbar('w','eastoutside');
+c.Label.String = 'Elevation (m)';
+c.Label.FontSize = 12;
+c.Label.Color = 'k';
+ylabel('Y-coordinates','FontName','Helvetica','FontSize',11);
+xlabel('X-coordinates','FontName','Helvetica','FontSize',11);
+zlabel('Elevation Z in meters','FontName','Helvetica','FontSize',11)
+title('House 01 - Point cloud Roof clip')
+
+
+%% store the data from las format into a matlab data frame
+[ALS_clip1] = lasdata('D:\Deutschland\Potsdam University\Winter Semester 2019-2020\Data Analysis and statistics\Project\clips\2side of the building-update5 - final model - Cloud-clip02.las');
+%% display the data with scaling to Z dimension 
+%%display the data with scaling to Z dimension  - Roof
+ALS_clip1.get_intensity();
+ALS_clip1.get_classification();
+ALS_clip1z = ALS_clip1.z +50;
+plot3(ALS_clip1.x, ALS_clip1.y, ALS_clip1z, '+'); grid
+ylabel('Y-coordinates','FontName','Helvetica','FontSize',11);
+xlabel('X-coordinates','FontName','Helvetica','FontSize',11);
+zlabel('Elevation Z in meters','FontName','Helvetica','FontSize',11);
+title('House 01 - Roof clip')
+
+%% using toolbox of (Polyfit) to prepare a fitting plane 
+% Roof Top
+ALS_x = ALS_clip1.x;
+ALS_y = ALS_clip1.y;
+ALS_z = ALS_clip1z; 
+
+ALS_linfit3D = polyfitn([ALS_x, ALS_y], ALS_z,1);
+%equation: f(x,y) = a*x + b*y + c
+%Test for center of plane:
+%Coefficients: [X Y Z]
+
+
+%% apply the plane fitting to our point cloud data
+%Roof Top
+[ALS_xx, ALS_yy]=meshgrid(min(ALS_x):0.1:max(ALS_x), min(ALS_y):0.1:max(ALS_y));
+ALS_zz = polyvaln(ALS_linfit3D, [ALS_xx(:) ALS_yy(:)]);
+ALS_zz = reshape(ALS_zz, size(ALS_xx));
+figure(1), clf
+L=plot3(ALS_x, ALS_y, ALS_z,'k.'); % Plot the original data points
+hold on
+grid on
+surf(ALS_xx, ALS_yy, ALS_zz) % Plotting the surface
+colorbar();
+c = colorbar('w','eastoutside');
+c.Label.String = 'Elevation (m)';
+c.Label.FontSize = 12;
+ylabel('Y-coordinates','FontName','Helvetica','FontSize',11);
+xlabel('X-coordinates','FontName','Helvetica','FontSize',11);
+zlabel('Elevation Z in meters','FontName','Helvetica','FontSize',11);
+title('House 01 - plane generation Roof clip')
+ALS_z_detrend = NaN(length(ALS_x), 1);
+for i = 1:length(ALS_x)
+    ALS_z_detrend(i) = ALS_z(i) - polyvaln(ALS_linfit3D, [ALS_x(i) ALS_y(i)]);
+end
+
+%% check the data accurcy to Mean trend and the standard deviation limits
+% Roof Top
+figure(2), clf
+
+plot(ALS_z_detrend), hold on, grid on, 
+a1 = plot([0 1200], [mean(ALS_z_detrend) mean(ALS_z_detrend)], 'k-', 'Linewidth', 2); M1 = "Mean line";
+a2 = plot([0 1200], [mean(ALS_z_detrend)-std(ALS_z_detrend) mean(ALS_z_detrend)-std(ALS_z_detrend)], 'k-', 'Linewidth', 1); M2 = "STD min line";
+a3 = plot([0 1200], [mean(ALS_z_detrend)+std(ALS_z_detrend) mean(ALS_z_detrend)+std(ALS_z_detrend)], 'k-', 'Linewidth', 1); M3 = "STD max line";
+legend([a1;a2;a3], M1, M2,M3);
+title('Distance from the fitted plane -  Roof clip', 'Fontsize', 16)
+xlabel('number of datapoints', 'FontSize', 12)
+ylabel('Distance from fitted plane (m)', 'Fontsize', 12)
+
+
+%% Accuracy percentage for plane fitting
+% Roof Top
+x = ALS_z_detrend;
+minVal = -0.02;
+maxVal = 0.02;
+
+ACC = size(x(x<=minVal));
+ACC2 = size(x(x>=maxVal));
+Accuracy = (((1246) - (ACC(:,1) + ACC2(:,1))) /1246) * 100 % Percent
+
+%% At the end we have a Roof Top clip point cloud data with plane fit accuracy = 76.8 Percent 
+
+%% Summary:
+% Point cloud from SFM has high accuracy with 98.7 % comparing to Airborne
+% Lidar data which is 76.8 % . SFM technique has limitation as Image Illumination and reflections of glass and leafs and Alignment would become proper after many attempts
+
+
