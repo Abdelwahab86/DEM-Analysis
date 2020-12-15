@@ -1,0 +1,395 @@
+
+%% Digital Elevation Models Project
+% Created By: Ahmed Abdelwahab
+
+
+%%
+clear all
+close all
+
+%% Activate Topotoolbox
+addpath('C:\Users\jeham\Documents\Master\DEM\topotoolbox_master\IOtools');
+addpath('C:\Users\jeham\Documents\Master\DEM\topotoolbox_master\utilities');
+
+
+%% Download DEM 1
+% We want to work with SRTM 30 m and ALOS 3D 30 m
+DEM = readopentopo('interactive',true,'demtype','SRTMGL1');
+
+% get the extent of the DEM 
+DEM.getextent % 
+%% Download ALOS DEM with the extent from the DEM above
+DEM2 = readopentopo('extent',DEM,'demtype','AW3D30');
+%%
+imageschs(DEM);
+%% Download DEMs based on the extent coordinates
+% Good Hope Mill Dam: -77.0139  -76.9331   40.2258 40.2867 weird
+% longitudinal profile
+% South Batavia Dam: -88.4956  -88.1497  41.7397   42.1114 too small
+% Stronach Dam:   -85.9194  -85.8389   44.1897   44.2308 <-maybe
+% Embrey Dam: -77.5356  -77.4494 38.2914   38.3414 not good
+% Randall Dam: -85.1447  -85.1017 42.0489   42.0725 not good
+% Marmot Dam: -122.1997 -122.0811 45.3308   45.4431 or small: -122.1522
+% -122.1228 45.3817   45.4094 <-good!
+% Milltown dam: -114.0297 -113.7058 46.7331   46.9519
+% Coho Dam: -82.6833  -82.5911 41.2561   41.3253
+% St. John Dam    -83.2792  -83.1367   40.9633   41.1028 <- ok
+% Marvel Slab Dam: -87.0956  -86.9531   33.0797   33.2344 maybe
+%  -83.1394  -82.9969   40.2078   40.3486
+coordinates = [-122.1997 -122.0811 45.3308   45.4431];
+DEM = readopentopo('extent',coordinates,'demtype','SRTMGL1_E');
+DEM2 = readopentopo('extent',coordinates,'demtype','AW3D30_E');
+
+%% Reproject to UTM
+DEM_S = reproject2utm(DEM,30);
+DEM_A = reproject2utm(DEM2,30);
+
+%% Plot the DEMs
+figure;
+subplot(1,2,1)
+imageschs(DEM_S); 
+title('SRTM 30 m');
+
+subplot(1,2,2)
+imageschs(DEM_A); 
+title('ALOS 30 m');
+%%
+% correct larges holes
+DEMf_S = fillsinks(DEM_S);
+DEMf_A = fillsinks(DEM_A);
+
+
+% correct larges holes
+DEMin_S = inpaintnans(DEMf_S);
+DEMin_A = inpaintnans(DEMf_A);
+
+%% Plot the corrected DEM
+figure;
+subplot(1,2,1)
+imageschs(DEMin_S); 
+title('Egypt SRTM 30 m');
+
+subplot(1,2,2)
+imageschs(DEMin_A); 
+title('Egypt ALOS 30 m');
+
+%% METHOD 1 (METHOD 2 is better if many flat areas)
+% Flow direction)
+FD_S = FLOWobj(DEM_S);
+FD_A = FLOWobj(DEM_A);
+
+% flow accumulation
+A_S = flowacc(FD_S);
+A_A = flowacc(FD_A);
+
+%% METHOD 2 (if many flat areas appear this method is better) (use the onpaintnans DEM)
+FD_S  = FLOWobj(DEMin_S,'preprocess','carve');
+FD_A  = FLOWobj(DEMin_A,'preprocess','carve');
+
+DEMc_S = DEMin_S;
+DEMc_A = DEMin_A;
+
+DEMc_S = imposemin(FD_S,DEMc_S,0.0001); % 0.0001 is minimum input gradient
+DEMc_a = imposemin(FD_A,DEMc_A,0.0001); % 0.0001 is minimum input gradient
+
+FD_S  = FLOWobj(DEMc_S);
+FD_A  = FLOWobj(DEMc_A);
+
+A_S   = flowacc(FD_S);
+A_A   = flowacc(FD_A);
+
+figure
+subplot(1,2,1)
+imageschs(DEM_S,sqrt(A_S),'colorbarylabel','# of cells draining');
+title('Dinf')
+
+subplot(1,2,2)
+imageschs(DEM_A,sqrt(A_A),'colorbarylabel','# of cells draining');
+title('Dinf')
+
+%% We create an instance of STREAMobj  with a minimum drainage area of 1000 cells.
+S_S  = STREAMobj(FD_S,'minarea',100);
+S_A  = STREAMobj(FD_A,'minarea',100);
+
+
+%% Now let's extract the largest subnetwork of the channel network. 
+% klargestconncomps extracts the k largest strongly connected components 
+% from the stream network in an instance of STREAMobj. Default k=1.  
+
+S_S = klargestconncomps(S_S,1);
+S_A = klargestconncomps(S_A,1);
+
+%%
+% In addition to selecting the largest subnetwork, we also can extract the 
+% trunk stream only using the function |trunk|.
+T_S = trunk(S_S); 
+T_A = trunk(S_A); 
+
+
+%% Plot largest network and trunk on DEM
+figure('Renderer', 'painters', 'Position', [0 0 1500 400])
+
+subplot(1,2,1)
+imageschs(DEMin_S);
+hold on
+plot(Sm_S,'c','Linewidth',2);
+plot(T_S, 'k', 'Linewidth',2);
+title('SRTM');
+
+subplot(1,2,2)
+imageschs(DEMin_A);
+hold on
+plot(Sm_A,'c','Linewidth',2);
+plot(T_A, 'k', 'Linewidth',2);
+title('ALOS');
+
+
+
+%% Longitudal profile
+figure;
+h = plotdz(S_S,DEM_S,'color','#b5b6bf', 'Linewidth',0.5);
+hold on;
+
+% And let's add also just the trunk stream again.
+h1 = plotdz(T_S,DEM_S,'color','b','Linewidth',2);
+h2 = plotdz(S_S,DEM_S,'color','#b5b6bf', 'Linewidth',0.5);
+h3 = plotdz(T_A,DEM_A,'color','r','Linewidth',2);
+h4 = plotdz(S_A,DEM_A,'color','#b5b6bf', 'Linewidth',0.5);
+
+% legend([h1 h3 h5],{'Alaska','Sumatra', 'Toro'})
+%legend('','Alaska','','Sumatra', 'Toro','Lithology 4', 'norm. dist.');
+legend boxoff
+title('Longitudinal profile of the Rivers');
+
+%% Colored stream segments based on channel gradient
+S_g = gradient(S_S,DEM_S,'unit','degree');
+A_g = gradient(S_A,DEM_A,'unit','degree');
+figure
+subplot(1,2,1)
+plotdz(S_S,DEM_S,'color',S_g,'cbarlabel','Gradient(deg)')
+title('SRTM');
+
+subplot(1,2,2)
+plotdz(S_A,DEM_A,'color',A_g,'cbarlabel','Gradient(deg)')
+title('ALOS')
+
+%% Automnatic knickpoint detection
+figure
+[zs_S,kp_S] = knickpointfinder(S_S,DEM_S,'tol',10,'split',false); % tolerance of 30 m
+[zs_A,kp_A] = knickpointfinder(S_A,DEM_A,'tol',10,'split',false); % tolerance of 30 m
+
+
+% Plot knickpoints within a longitudinal profile
+figure
+plotdz(S_S,DEM_S);
+hold on
+plot(kp_S.distance,kp_S.z,'ko','MarkerFaceColor','w')
+plot(kp_A.distance,kp_A.z,'ko','MarkerFaceColor','r')
+
+hold off
+
+% Plot knickpoints in map view
+figure
+imageschs(DEM_S)
+hold on
+plot(S_S,'k');
+plot(kp_S.x,kp_S.y,'ko','MarkerFaceColor','w')
+plot(S_A,'b');
+plot(kp_A.x,kp_A.y,'ko','MarkerFaceColor','r')
+
+hold off
+
+%% Good to know commands:
+
+% Save DEM
+GRIDobj2geotiff(DEM_S,'DEM_S.tif');
+GRIDobj2geotiff(DEM_A,'DEM_A.tif')
+
+%% point out knickpoint
+mappingapp(DEM_S,S_S)
+
+% Longitudal profile
+figure;
+h = plotdz(S_S,DEM_S,'color','#b5b6bf', 'Linewidth',0.5);
+hold on;
+
+% And let's add also just the trunk stream again.
+h1 = plotdz(T_S,DEM_S,'color','b','Linewidth',2);
+h2 = plotdz(S_S,DEM_S,'color','#b5b6bf', 'Linewidth',0.5);
+
+%% Modify stream object
+% if we manually want to select a reach
+Sm_S = modify(S_S,'interactive','reachselect');
+
+
+%% Here starts a new analysis!!!!
+%% %% Ksn and knickpoint analysis  
+
+clear all 
+close all
+
+coordinates = [-83.2792  -83.1367   40.9633   41.1028];
+DEM = readopentopo('extent',coordinates,'demtype','SRTMGL1');
+DEM2 = readopentopo('extent',coordinates,'demtype','AW3D30');
+
+% Reproject to UTM
+DEM_S = reproject2utm(DEM,30);
+DEM_A = reproject2utm(DEM2,30);
+
+FD_S  = FLOWobj(DEM_S,'preprocess','carve');
+FD_A  = FLOWobj(DEM_A,'preprocess','carve');
+
+A_S   = flowacc(FD_S);
+A_A   = flowacc(FD_A);
+
+
+%%
+% The quality of the DEM is relatively bad, so we correct it by imposing a
+% downward minimum gradient.
+
+DEM_S = imposemin(FD_S,DEM_S,0.0001);
+DEM_A = imposemin(FD_A,DEM_A,0.0001);
+
+
+%%
+% Subsequently, we extract a stream network by thresholding flow
+% accumulation. In this example, we simply assume that channels occupy
+% cells that have a minimum upslope area of 1000 pixels.
+
+S_S  = STREAMobj(FD_S,'minarea',100); % 100 because we have a smaller area
+S_A  = STREAMobj(FD_A,'minarea',100); % 100 because we have a smaller area
+
+S_S = klargestconncomps(S_S,1);
+S_A = klargestconncomps(S_A,1);
+
+figure('Renderer', 'painters', 'Position', [0 0 1500 400])
+
+subplot(1,2,1)
+imageschs(DEM_S);
+hold on
+%plot(S_S,'c','Linewidth',2);
+title('SRTM');
+
+subplot(1,2,2)
+imageschs(DEM_A);
+hold on
+%plot(S_A,'c','Linewidth',2);
+title('ALOS');
+
+%% 
+% We modify the stream network somewhat so that we avoid to include the
+% alluvial areas in the most downstream portion of the profile. 
+S = modify(S,'distance',5000); % try several times to end up with the correct network in space
+
+%%
+% In order to remove small stream sections we again extract the largest
+% connected component of the network
+S_S = klargestconncomps(S,1);
+
+figure
+imageschs(DEM);
+hold on
+plot(S,'r','Linewidth',2)
+hold off
+
+
+% And let us take a look at the longitudinal profile
+
+figure
+plotdz(S_A,DEM_A);
+
+%% Automnatic knickpoint detection
+
+% We again use the knickpointfinder, the function you learned about a few
+% weeks ago. I have already adjusted the tolerance to 100. 
+
+figure
+[zs_S,kp_S] = knickpointfinder(S_S,DEM_S,'tol',100,'split',false); % tolerance value of 100 (try different with lower it 
+[zs_A,kp_A] = knickpointfinder(S_A,DEM_A,'tol',100,'split',false); % tolerance value of 100 (try different with lower it 
+
+
+% Plot knickpoints within a longitudinal profile
+figure
+subplot(1,2,1)
+plotdz(S_S,DEM_S);
+hold on
+plot(kp_S.distance,kp_S.z,'ko','MarkerFaceColor','w')
+hold off
+
+subplot(1,2,2)
+plotdz(S_A,DEM_A);
+hold on
+plot(kp_A.distance,kp_A.z,'ko','MarkerFaceColor','r')
+hold off
+
+% Plot knickpoints in map view
+figure
+imageschs(DEM_S)
+hold on
+plot(S_S,'k');
+plot(kp_S.x,kp_S.y,'ko','MarkerFaceColor','w')
+hold off
+
+%% Calculating the concavity index
+%
+% After extracting the channel network of interest, we calculate the
+% concavity index (theta) and channel steepness index (ks) using the slopearea function.
+% Note that 'slopearea' returns the concavity index (theta) including its 
+% negative sign!
+
+figure
+STATS = slopearea(S,DEM,A)
+
+% We can see that the fit goes through all the data, which of course does
+% not make too much sense. As we are now only interested in the pattern,
+% let's plot simply the data without the fit.
+
+figure
+loglog(STATS.a,STATS.g,'s'); % a is catchment area and s gradient
+xlabel('area');
+ylabel('slope')
+
+% the result is the same as for slopearea function but without the fitted
+% line
+
+% Let us compare this to the schematic figure from  Lague 2014.
+% for homewotk compare our result with the one from Lague
+
+%% Calculate and plot ksn values
+
+ksn = ksn(S,DEM,A,0.45);
+     
+figure
+imageschs(DEM,[],'colormap',[.9 .9 .9],'colorbar',false);
+hold on
+plotc(S,ksn)
+caxis([0 300])
+colorbar
+      
+% Because there is a lot of variability in ksn over fairly short distance,
+% we will smooth the dataset by 
+
+ksn = smooth(S,ksn,'K',100); % loosing to much information?
+
+% Let'S plot it again 
+figure
+imageschs(DEM,DEM,'colormap',[.9 .9 .9],'colorbar',false);
+hold on
+plotc(S,ksn)
+
+% and add the knickpoints to the map. What do you see?
+plot(kp.x,kp.y,'ko','MarkerFaceColor','w')
+
+% we often see variability before and after the knickpoint
+      
+% In addition, let is create a longitudinal profile that is colored by ksn
+% values and also add the knickpoint.
+     
+figure
+plotdz(S,DEM,'color',ksn);
+hold on
+plot(kp.distance,kp.z,'ko','MarkerFaceColor','w')
+
+
+
+
