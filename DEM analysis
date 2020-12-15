@@ -1,4 +1,6 @@
 # Compare aligned DEMs
+# Prepared By : Ahmed Abdelwahab
+# Created via Python
 
 we will use the SRTM-C (30m, NASADEM), ASTER GDEM V3, ALOS 3D (12.5m) DEMs that have been aligned to the TanDEM-X DEM (12m, WorldDEM)
 
